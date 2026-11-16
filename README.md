@@ -4,6 +4,17 @@ Circadian rhythm and jet-lag planning app for iPhone. It imports your flights an
 
 > Rhythmic offers research-informed suggestions based on your itinerary and usual sleep habits. It does not measure your body clock, provide medical advice, or guarantee results.
 
+## Screenshots
+Demo plan for Windhoek → Addis Ababa → Singapore (iPhone Simulator, v0.1).
+
+| Plan overview | Travel day | Arrival |
+|---|---|---|
+| <img src="docs/screenshots/3-plan-overview.png" width="250"> | <img src="docs/screenshots/4-travel-day.png" width="250"> | <img src="docs/screenshots/5-arrival.png" width="250"> |
+
+| Welcome | Preferences | Dark mode |
+|---|---|---|
+| <img src="docs/screenshots/1-welcome.png" width="250"> | <img src="docs/screenshots/2-preferences.png" width="250"> | <img src="docs/screenshots/6-dark-travel-now.png" width="250"> |
+
 ## Docs
 - [docs/PLAN.md](docs/PLAN.md): product decisions and architecture
 - [docs/EVIDENCE.md](docs/EVIDENCE.md): every scheduling rule with source, basis, assumptions and review date
