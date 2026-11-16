@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Google OAuth iOS client ID (from your own Google Cloud project). Empty = Google import disabled. -->
+	<key>GoogleClientID</key>
+	<string></string>
+	<!-- Add the reversed client ID URL scheme here when a client ID is configured, e.g.
+	     com.googleusercontent.apps.1234-abcd -->
+	<key>CFBundleURLTypes</key>
+	<array/>
+</dict>
+</plist>
