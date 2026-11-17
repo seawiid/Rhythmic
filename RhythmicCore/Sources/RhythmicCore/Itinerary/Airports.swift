@@ -8,14 +8,34 @@ public struct Airport: Codable, Hashable, Sendable {
     public var longitude: Double
 }
 
-/// Small bundled airport table: IATA → IANA zone + coordinates (for sunrise/sunset).
-/// Not exhaustive. Unknown airports make the importer ask for the zone instead of guessing.
+/// Airport lookup: IATA → IANA zone + coordinates (for sunrise/sunset).
+/// 1. A small hand-checked table (below), which wins where the two disagree.
+/// 2. A bundled table of ~7,900 airports generated from github.com/mwgg/Airports (MIT; see
+///    Resources/AIRPORTS-LICENSE.txt). Offline; no network.
+/// Airports in neither still make the importer ask for the zone instead of guessing.
 public enum Airports {
     public static let table: [String: Airport] = Dictionary(uniqueKeysWithValues: rows.map { ($0.code, $0) })
 
+    /// Bundled full table, loaded once on first use.
+    public static let extended: [String: Airport] = loadExtended()
+
     public static func lookup(_ code: String?) -> Airport? {
         guard let code else { return nil }
-        return table[code.uppercased()]
+        let c = code.uppercased()
+        return table[c] ?? extended[c]
+    }
+
+    static func loadExtended() -> [String: Airport] {
+        guard let url = Bundle.module.url(forResource: "airports", withExtension: "tsv"),
+              let text = try? String(contentsOf: url, encoding: .utf8) else { return [:] }
+        var out: [String: Airport] = [:]
+        for line in text.split(separator: "\n") where !line.hasPrefix("#") {
+            let f = line.split(separator: "\t", omittingEmptySubsequences: false)
+            guard f.count >= 5, let lat = Double(f[2]), let lon = Double(f[3]), TimeZone(identifier: String(f[1])) != nil else { continue }
+            let code = String(f[0])
+            out[code] = Airport(code: code, city: String(f[4]), zoneID: String(f[1]), latitude: lat, longitude: lon)
+        }
+        return out
     }
 
     private static let rows: [Airport] = [
@@ -23,6 +43,8 @@ public enum Airports {
         .init(code: "WDH", city: "Windhoek", zoneID: "Africa/Windhoek", latitude: -22.48, longitude: 17.47),
         .init(code: "ADD", city: "Addis Ababa", zoneID: "Africa/Addis_Ababa", latitude: 8.98, longitude: 38.80),
         .init(code: "SIN", city: "Singapore", zoneID: "Asia/Singapore", latitude: 1.36, longitude: 103.99),
+        // Corrections to the bundled table (it lists Seletar under Asia/Kuala_Lumpur; same offset, wrong place)
+        .init(code: "XSP", city: "Singapore Seletar", zoneID: "Asia/Singapore", latitude: 1.42, longitude: 103.87),
         .init(code: "EBB", city: "Entebbe", zoneID: "Africa/Kampala", latitude: 0.04, longitude: 32.44),
         // Africa
         .init(code: "JNB", city: "Johannesburg", zoneID: "Africa/Johannesburg", latitude: -26.14, longitude: 28.24),

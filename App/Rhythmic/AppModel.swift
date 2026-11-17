@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import UserNotifications
 import RhythmicCore
 
 @MainActor
@@ -9,6 +10,8 @@ final class AppModel {
     /// Shown once after an automatic regeneration or when a plan can't be made.
     var notice: String?
     var pendingReminderCount = 0
+    /// Real iOS permission, refreshed whenever reminders sync (app launch and each return to foreground).
+    var notificationAuthorization: UNAuthorizationStatus = .notDetermined
     var isBusy = false
     var importError: String?
     let google = GoogleCalendarClient()
@@ -24,13 +27,17 @@ final class AppModel {
     var plan: Plan? { state.plan }
 
     var allImported: [ImportedSegment] {
-        (state.sampleEnabled ? Self.sampleSegments : []) + state.manualSegments + state.feedSegments + state.googleSegments
+        state.manualSegments + state.feedSegments + state.googleSegments
     }
 
-    var itinerary: NormalizationResult { ItineraryNormalizer.normalize(allImported) }
+    /// Upcoming trips only: feeds such as TripIt also contain past trips, which are hidden here.
+    var itinerary: NormalizationResult {
+        let raw = allImported
+        return ItineraryNormalizer.normalize(raw).upcoming(from: raw, now: Date(), keepTripID: state.selectedTripID)
+    }
 
     var upcomingTrips: [Trip] {
-        itinerary.trips.filter { $0.arrival > Date().addingTimeInterval(-3 * 86400) || $0.segments.contains { $0.sources.contains { $0.kind == .sample } } }
+        itinerary.trips
     }
 
     var feedURLConfigured: Bool { Keychain.get("feed.url") != nil }
@@ -47,14 +54,15 @@ final class AppModel {
 
     // MARK: Sources
 
-    func setSample(_ on: Bool) {
-        state.sampleEnabled = on
-        if on, state.selectedTripID == nil { state.selectedTripID = Fixtures.namibiaSingapore.segments[0].sampleNormalizedID }
+    func addManual(_ seg: ImportedSegment) {
+        state.manualSegments.append(seg)
         reconcilePlan(announce: true); persist()
     }
 
-    func addManual(_ seg: ImportedSegment) {
-        state.manualSegments.append(seg)
+    /// Deletes the manually added flights in a trip (imported flights would return on the next refresh).
+    func removeManualFlights(in trip: Trip) {
+        let ids = Set(trip.segments.flatMap(\.sources).filter { $0.kind == .manual }.map(\.externalID))
+        state.manualSegments.removeAll { ids.contains($0.source.externalID) }
         reconcilePlan(announce: true); persist()
     }
 
@@ -69,7 +77,7 @@ final class AppModel {
     }
 
     func refreshFeed() async {
-        guard let s = Keychain.get("feed.url"), let url = URL(string: s.replacingOccurrences(of: "webcal://", with: "https://")) else { return }
+        guard let s = Keychain.get("feed.url"), case .success(let url) = FeedLink.normalize(s) else { return }
         isBusy = true; defer { isBusy = false }
         do {
             state.feedSegments = try await ICSFeedImporter(url: url).fetch()
@@ -150,6 +158,14 @@ final class AppModel {
 
     // MARK: Reminders
 
+    /// iOS has refused notifications for Rhythmic (only the user can change this, in Settings).
+    var notificationsDenied: Bool { notificationAuthorization == .denied }
+
+    /// Reminders are wanted and iOS allows them. Drives the bell, the preferences toggle and scheduling.
+    var remindersActive: Bool {
+        state.remindersEnabled && [.authorized, .provisional, .ephemeral].contains(notificationAuthorization)
+    }
+
     func setReminders(_ on: Bool) async {
         if on {
             let granted = await NotificationScheduler.shared.requestAuthorization()
@@ -163,29 +179,11 @@ final class AppModel {
     }
 
     func syncReminders() async {
-        pendingReminderCount = await NotificationScheduler.shared.sync(plan: state.plan, enabled: state.remindersEnabled)
+        notificationAuthorization = await NotificationScheduler.shared.authorizationStatus()
+        pendingReminderCount = await NotificationScheduler.shared.sync(plan: state.plan, enabled: remindersActive)
     }
 
     private func persist() { Store.save(state) }
-
-    // MARK: Sample
-
-    /// The brief's demo itinerary, as raw "imported" records so it flows through the same pipeline.
-    static let sampleSegments: [ImportedSegment] = Fixtures.namibiaSingapore.segments.map { s in
-        ImportedSegment(source: SourceRef(kind: .sample, externalID: s.id), origin: s.origin, destination: s.destination,
-                        departure: .instant(s.departure), arrival: .instant(s.arrival),
-                        originZoneID: s.originZoneID, destinationZoneID: s.destinationZoneID,
-                        rawSummary: "SAMPLE \(s.origin) → \(s.destination)")
-    }
-}
-
-extension FlightSegment {
-    /// Matches the id the normaliser assigns to the sample's first segment (no flight number).
-    var sampleNormalizedID: String {
-        var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: "UTC")!
-        let c = cal.dateComponents([.year, .month, .day], from: departure)
-        return "-\(origin)\(destination)-" + String(format: "%04d%02d%02d", c.year!, c.month!, c.day!)
-    }
 }
 
 extension String {

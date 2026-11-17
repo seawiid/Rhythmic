@@ -4,14 +4,15 @@ All sources produce `ImportedSegment`s, which go through one normaliser (`Itiner
 - **Updates:** the newest version of the same source event wins.
 - **Duplicates across sources:** merged when the route matches, departures are within 3 h, and flight numbers are compatible. Conflicting times raise a review issue.
 - **Cancellations:** removed from trips. A plan whose trip disappears is cleared, along with its reminders.
+- **Airports:** time zones come from a bundled table of about 7,900 airports (generated from mwgg/Airports, MIT), with a small hand-checked list taking priority.
+- **Past trips:** feeds include finished trips. Trips that ended more than a day ago, and their review items, are hidden (`NormalizationResult.upcoming`).
 - **Missing fields, unknown airports, ambiguous or nonexistent DST local times:** reported for review and **never guessed**.
 - **Grouping:** segments within 24 h of each other form one trip. A changed airport between legs is flagged as a ground transfer.
 
 | Source | State | Notes |
 |---|---|---|
-| Sample (Windhoek → Singapore) | Working | Labelled "Sample data" everywhere. |
 | Manual entry | Working | Fallback. Local times per airport; zone from the bundled airport table or chosen by the user. |
-| TripIt / any ICS feed | **Implemented, unvalidated** | Parser tested only against a *synthetic* ICS file. Needs a real feed sample. |
+| TripIt / any ICS feed | **Working with one real feed** | Read 23 flights correctly from a real TripIt feed (2026-11-17). Past trips are hidden. Not yet a test fixture. |
 | Google Calendar (cloud API) | **Implemented, not connected** | Needs an OAuth client ID. Never shown as "connected" without one. |
 
 ## TripIt private feed

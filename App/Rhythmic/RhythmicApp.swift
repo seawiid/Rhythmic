@@ -22,43 +22,45 @@ struct RhythmicApp: App {
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
-    @State private var showItinerary = false
-    @State private var showPreferences = false
+    @AppStorage(AppearanceMode.storageKey) private var appearance: AppearanceMode = .system
+    @State private var tab: Tab = .initial
+
+    enum Tab: String, Hashable {
+        case plan, trips, you
+        /// Debug builds only: `-RhythmicTab trips` opens a tab directly (for screenshots without taps).
+        static var initial: Tab {
+            #if DEBUG
+            if let s = UserDefaults.standard.string(forKey: "RhythmicTab"), let t = Tab(rawValue: s) { return t }
+            #endif
+            return .plan
+        }
+    }
 
     var body: some View {
-        if !model.state.acceptedNotice {
-            OnboardingView()
-        } else if model.preferences == nil {
-            NavigationStack { PreferencesView(isOnboarding: true) }
-        } else {
-            NavigationStack {
-                Group {
-                    if let plan = model.plan {
-                        PlanView(plan: plan)
-                    } else {
-                        ContentUnavailableView {
-                            Label("No plan yet", systemImage: "airplane.departure")
-                        } description: {
-                            Text("Connect a flight source or try the sample trip, then choose a trip.")
-                        } actions: {
-                            Button("Add flights") { showItinerary = true }.buttonStyle(.borderedProminent)
-                        }
-                    }
+        Group {
+            if !model.state.acceptedNotice {
+                OnboardingView()
+            } else if model.preferences == nil {
+                NavigationStack { PreferencesView(isOnboarding: true) }
+            } else {
+                TabView(selection: $tab) {
+                    PlanTab(showTrips: { tab = .trips })
+                        .tabItem { Label("Plan", systemImage: "clock") }
+                        .tag(Tab.plan)
+                    NavigationStack { TripsView(openPlan: { tab = .plan }) }
+                        .tabItem { Label("Trips", systemImage: "airplane") }
+                        .tag(Tab.trips)
+                    NavigationStack { PreferencesView() }
+                        .tabItem { Label("You", systemImage: "person") }
+                        .tag(Tab.you)
                 }
-                .navigationTitle("Rhythmic")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarLeading) { Button { showPreferences = true } label: { Image(systemName: "person.crop.circle") }.accessibilityLabel("Preferences") }
-                    ToolbarItem(placement: .topBarTrailing) { Button { showItinerary = true } label: { Image(systemName: "airplane") }.accessibilityLabel("Itinerary") }
-                }
-                .alert("Plan update", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
-                    Button("OK") { model.notice = nil }
-                } message: { Text(model.notice ?? "") }
-                .sheet(isPresented: $showItinerary) {
-                    NavigationStack { ItineraryView().toolbar { Button("Done") { showItinerary = false } } }
-                }
-                .sheet(isPresented: $showPreferences) { NavigationStack { PreferencesView() } }
+                .tint(Palette.ink)
             }
         }
+        .alert("Plan update", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
+            Button("OK") { model.notice = nil }
+        } message: { Text(model.notice ?? "") }
+        .onAppear { appearance.apply() }
+        .onChange(of: appearance) { _, mode in mode.apply() }
     }
 }

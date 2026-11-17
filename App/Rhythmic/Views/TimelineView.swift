@@ -1,271 +1,252 @@
 import SwiftUI
+import UIKit
 import RhythmicCore
 
-/// Vertically scrolling timeline. Each local day is a section: hour ruler on the left, three lanes
-/// (sleep · light · caffeine), and labels on the right placed at block start without overlapping.
-/// Solid fills = do this for the whole period. Translucent/outlined = a window; its label states
-/// the suggested duration within it.
-struct PlanTimeline: View {
+/// One local day of the plan as a time-proportional vertical timeline:
+/// time column · flight-marker gutter · recommendation lane · caffeine lane.
+/// Geometry follows elapsed time; the clock labels follow the most recently reached place
+/// (see `Trip.clockZoneID(at:)`), so a landing relabels the clock without moving any block.
+struct DayTimeline: View {
     let plan: Plan
-    var now: Date
-    var onSelect: (PlanBlock) -> Void
-
-    static let hourHeight: CGFloat = 30
-    static let laneWidth: CGFloat = 14
-
-    struct Day: Identifiable {
-        var id: String
-        var zone: String
-        var span: TimeSpan
-        var phase: PlanPhase
-    }
-
-    /// Split the horizon into local days, following the traveller's zone.
-    var days: [Day] {
-        var out: [Day] = []
-        var t = plan.horizon.start
-        while t < plan.horizon.end {
-            let zone = plan.trip.zoneID(at: t)
-            let key = TimeFmt.day(t, zone)
-            if var last = out.last, last.id == key {
-                last.span = TimeSpan(last.span.start, t.addingTimeInterval(3600))
-                out[out.count - 1] = last
-            } else {
-                out.append(Day(id: key, zone: zone, span: TimeSpan(t, t.addingTimeInterval(3600)), phase: plan.phase(at: t)))
-            }
-            // A day containing any part of the journey is a travel day.
-            if var last = out.last, last.span.overlaps(TimeSpan(plan.trip.departure.addingTimeInterval(-3 * 3600), plan.trip.arrival)) {
-                last.phase = .travel; out[out.count - 1] = last
-            }
-            t = t.addingTimeInterval(3600)
-        }
-        return out
-    }
-
-    var body: some View {
-        LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-            ForEach(days) { day in
-                Section {
-                    DayCanvas(plan: plan, day: day, now: now, onSelect: onSelect)
-                        .id("day-" + day.id)
-                } header: {
-                    DayHeader(plan: plan, day: day)
-                }
-            }
-        }
-    }
-}
-
-private struct DayHeader: View {
-    let plan: Plan
-    let day: PlanTimeline.Day
-    var body: some View {
-        HStack {
-            Text(day.id).font(.headline)
-            Text(label).font(.subheadline).foregroundStyle(.secondary)
-            Spacer()
-            Text(TimeFmt.city(day.zone)).font(.caption).foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 6).padding(.horizontal)
-        .background(.bar)
-        .accessibilityElement(children: .combine)
-    }
-    var label: String {
-        switch day.phase { case .preparation: "Preparation"; case .travel: "Travel"; case .destination: "Destination" }
-    }
-}
-
-private struct DayCanvas: View {
-    let plan: Plan
-    let day: PlanTimeline.Day
+    let day: TimelineDay
     let now: Date
-    var onSelect: (PlanBlock) -> Void
+    var onSelectBlock: (PlanBlock) -> Void
+    var onSelectEvent: (FlightEvent) -> Void
 
-    let rulerWidth: CGFloat = 64
-    let labelHeight: CGFloat = 40
+    @ScaledMetric(relativeTo: .caption2) private var pointsPerHour: CGFloat = 40
+    @ScaledMetric(relativeTo: .caption2) private var timeHeight: CGFloat = 15
+    @ScaledMetric(relativeTo: .caption2) private var cityLine: CGFloat = 12
+    @ScaledMetric(relativeTo: .caption2) private var timeWidthScaled: CGFloat = 48
+    @ScaledMetric(relativeTo: .caption2) private var caffeineWidthScaled: CGFloat = 62
+    /// Side columns grow with text size only up to a cap, so the main lane keeps room for titles.
+    private var timeWidth: CGFloat { min(timeWidthScaled, 64) }
+    private var caffeineWidth: CGFloat { min(caffeineWidthScaled, 72) }
+    private let gutterWidth: CGFloat = 22
+    private let laneGap: CGFloat = 6
 
-    var hours: Int { Int((day.span.duration / 3600).rounded()) }
-    func y(_ d: Date) -> CGFloat { CGFloat(d.timeIntervalSince(day.span.start) / 3600) * PlanTimeline.hourHeight }
-
-    var visibleBlocks: [PlanBlock] { plan.blocks.filter { $0.span.overlaps(day.span) } }
-
-    /// Labels for blocks that start in this day (or continue from the previous day at the top).
-    var labelled: [(PlanBlock, CGFloat)] {
-        var out: [(PlanBlock, CGFloat)] = []
-        var cursor: CGFloat = 0
-        for b in visibleBlocks {
-            let y0 = max(0, y(b.start))
-            let placed = max(y0, cursor)
-            out.append((b, placed))
-            cursor = placed + labelHeight
+    private var height: CGFloat { y(day.span.end) }
+    private func y(_ d: Date) -> CGFloat { CGFloat(d.timeIntervalSince(day.span.start) / 3600) * pointsPerHour }
+    /// City names may wrap to two lines in the narrow time column.
+    private var metrics: LabelMetrics {
+        let line = cityLine, width = timeWidth - 4
+        let font = UIFontMetrics(forTextStyle: .caption2).scaledFont(for: .systemFont(ofSize: 10, weight: .medium))
+        return LabelMetrics(timeHeight: timeHeight, gap: 2) { city in
+            (city as NSString).size(withAttributes: [.font: font]).width * 0.75 > width ? line * 2 : line
         }
-        return out
     }
 
     var body: some View {
-        let height = max(CGFloat(hours) * PlanTimeline.hourHeight, (labelled.last?.1 ?? 0) + labelHeight)
-        ZStack(alignment: .topLeading) {
-            // Hour ruler
-            ForEach(0..<hours, id: \.self) { h in
-                let t = day.span.start.addingTimeInterval(Double(h) * 3600)
-                // Ruler follows the traveller's zone hour by hour, so it always matches the labels.
-                let zone = plan.trip.zoneID(at: t)
-                let zoneChanged = h > 0 && zone != plan.trip.zoneID(at: t.addingTimeInterval(-3600))
-                HStack(alignment: .top, spacing: 4) {
-                    VStack(alignment: .trailing, spacing: 0) {
-                        Text(TimeFmt.time(t, zone)).font(.caption2.monospacedDigit().weight(zoneChanged ? .bold : .regular))
-                        if zoneChanged {
-                            Text(TimeFmt.city(zone)).font(.caption2).foregroundStyle(.tint).lineLimit(1).minimumScaleFactor(0.7)
-                        } else if plan.preferences.showHomeTime, h % 2 == 0,
-                           let home = TimeFmt.homeReference(t, local: zone, home: plan.homeZoneID) {
-                            Text(home).font(.caption2).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.7)
-                        }
-                    }
-                    .frame(width: rulerWidth, alignment: .trailing)
-                    Rectangle().fill(.quaternary).frame(height: 0.5)
-                }
-                .offset(y: CGFloat(h) * PlanTimeline.hourHeight - 6)
-                .accessibilityHidden(true)
-            }
-
-            // Lanes
-            ForEach(visibleBlocks) { b in
-                lane(for: b)
-            }
-
-            // Now marker
-            if day.span.contains(now) {
-                Rectangle().fill(.red).frame(height: 2)
-                    .offset(x: rulerWidth, y: y(now))
-                    .accessibilityLabel("Now")
-            }
-
-            // Labels
-            ForEach(labelled, id: \.0.id) { b, ly in
-                Button { onSelect(b) } label: { BlockLabel(block: b, plan: plan) }
-                    .buttonStyle(.plain)
-                    .frame(maxWidth: .infinity, minHeight: labelHeight, maxHeight: labelHeight, alignment: .topLeading)
-                    .padding(.leading, rulerWidth + 3 * (PlanTimeline.laneWidth + 4) + 14)
-                    .padding(.trailing, 12)
-                    .offset(y: ly)
-            }
+        let labels = TimelineLayout.labels(plan, day: day, pointsPerHour: pointsPerHour, metrics: metrics)
+        let overflow = max(0, (labels.map(\.bottom).max() ?? 0) - height)
+        HStack(alignment: .top, spacing: 0) {
+            timeColumn(labels).frame(width: timeWidth, height: height, alignment: .topTrailing)
+            gutter.frame(width: gutterWidth, height: height)
+            Color.clear.frame(width: laneGap, height: height)
+            lanes.frame(height: height)
         }
-        .frame(height: height + 8, alignment: .top)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, 8)
+        .padding(.top, timeHeight / 2 + 2)
+        .padding(.bottom, overflow + timeHeight / 2 + 4)
     }
 
-    @ViewBuilder
-    func lane(for b: PlanBlock) -> some View {
-        let laneIndex: CGFloat = switch b.kind.lane { case .sleep: 0; case .light: 1; case .caffeine: 2; case .context: 0 }
-        let top = max(0, y(b.start)), bottom = min(CGFloat(hours) * PlanTimeline.hourHeight, y(b.end))
-        let x = rulerWidth + 6 + laneIndex * (PlanTimeline.laneWidth + 4)
-        let h = max(2, bottom - top)
-        Group {
-            switch b.kind {
-            case .flight:
-                // Flight: thin bracket spanning all lanes.
-                RoundedRectangle(cornerRadius: 3)
-                    .strokeBorder(Color.secondary, style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
-                    .frame(width: 3 * (PlanTimeline.laneWidth + 4) + 4, height: h)
-                    .offset(x: x - 3, y: top)
-            case .sleep, .prioritizeLight:
-                RoundedRectangle(cornerRadius: 4).fill(b.kind.color)
-                    .frame(width: PlanTimeline.laneWidth, height: h).offset(x: x, y: top)
-            case .nap, .lightHelpful:
-                RoundedRectangle(cornerRadius: 4).fill(b.kind.color.opacity(0.3))
-                    .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(b.kind.color, style: StrokeStyle(lineWidth: 1.5, dash: b.kind == .nap ? [3, 2] : [])))
-                    .frame(width: PlanTimeline.laneWidth, height: h).offset(x: x, y: top)
-            case .reduceLight:
-                RoundedRectangle(cornerRadius: 4)
-                    .strokeBorder(b.kind.color, lineWidth: 1.5)
-                    .frame(width: PlanTimeline.laneWidth, height: h).offset(x: x, y: top)
-            case .caffeineOK:
-                // Dotted line: permitted window, not continuous drinking.
-                Rectangle().fill(.clear).frame(width: PlanTimeline.laneWidth, height: h)
-                    .overlay(Line().stroke(b.kind.color, style: StrokeStyle(lineWidth: 3, lineCap: .round, dash: [1, 6])))
-                    .offset(x: x, y: top)
-            case .caffeineAvoid:
-                RoundedRectangle(cornerRadius: 4)
-                    .strokeBorder(b.kind.color.opacity(0.7), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                    .overlay(CrossHatch().stroke(b.kind.color.opacity(0.35), lineWidth: 1).clipped())
-                    .frame(width: PlanTimeline.laneWidth, height: h).offset(x: x, y: top)
+    // MARK: Time column
+
+    private func timeColumn(_ labels: [TimelineLabel]) -> some View {
+        ZStack(alignment: .topTrailing) {
+            ForEach(labels, id: \.self) { l in
+                VStack(alignment: .trailing, spacing: 0) {
+                    Text(TimeFmt.time(l.date, l.zoneID))
+                        .font(.caption2.monospacedDigit().weight(isEvent(l) ? .semibold : .regular))
+                        .foregroundStyle(isEvent(l) ? Palette.ink : Palette.secondary)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                        .frame(height: timeHeight)
+                    if let city = l.city {
+                        Text(city)
+                            .font(.system(size: 10, weight: .medium)).foregroundStyle(Palette.accent)
+                            .multilineTextAlignment(.trailing).lineLimit(2).minimumScaleFactor(0.75)
+                            .frame(height: metrics.cityHeight(city), alignment: .top)
+                    }
+                }
+                .frame(width: timeWidth - 4, alignment: .trailing)
+                .offset(y: l.top)
             }
         }
         .accessibilityHidden(true)
     }
-}
 
-private struct Line: Shape {
-    func path(in r: CGRect) -> Path { Path { p in p.move(to: CGPoint(x: r.midX, y: r.minY + 2)); p.addLine(to: CGPoint(x: r.midX, y: r.maxY - 2)) } }
-}
+    private func isEvent(_ l: TimelineLabel) -> Bool { if case .event = l.kind { true } else { false } }
 
-private struct CrossHatch: Shape {
-    func path(in r: CGRect) -> Path {
-        Path { p in
-            var y: CGFloat = -r.width
-            while y < r.height {
-                p.move(to: CGPoint(x: 0, y: y + r.width)); p.addLine(to: CGPoint(x: r.width, y: y))
-                y += 8
+    // MARK: Flight gutter
+
+    private var gutter: some View {
+        let events = TimelineLayout.flightEvents(plan.trip, in: day.span)
+        let airborne = plan.trip.segments.compactMap { $0.span.intersection(day.span) }
+        return ZStack(alignment: .top) {
+            ForEach(airborne, id: \.start) { s in
+                // Thin dotted trail while airborne: sits in the gutter, never across the blocks.
+                Rectangle().fill(.clear).frame(width: 2, height: max(0, y(s.end) - y(s.start)))
+                    .overlay(DottedLine().stroke(Palette.accent.opacity(0.45), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [0.5, 4])))
+                    .offset(y: y(s.start))
             }
+            ForEach(events) { e in
+                Button { onSelectEvent(e) } label: {
+                    Image(systemName: e.kind == .takeoff ? "airplane.departure" : "airplane.arrival")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Palette.accent)
+                        .frame(width: 20, height: 20)
+                        .background(Circle().fill(Palette.background))
+                        .contentShape(Rectangle().inset(by: -4))
+                }
+                .buttonStyle(.plain)
+                .offset(y: y(e.date) - 10)
+                .accessibilityLabel(eventLabel(e))
+                .accessibilityHint("Shows flight details")
+            }
+        }
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    private func eventLabel(_ e: FlightEvent) -> String {
+        let place = Airports.lookup(e.airport)?.city ?? e.airport
+        return "\(e.kind == .takeoff ? "Takeoff from" : "Landing in") \(place), \(TimeFmt.time(e.date, e.zoneID)) local time"
+    }
+
+    // MARK: Lanes
+
+    private var lanes: some View {
+        let main = TimelineLayout.mainLane(plan, in: day.span)
+        let caffeine = TimelineLayout.caffeineLane(plan, in: day.span)
+        let ticks = TimelineLayout.hourTicks(plan.trip, in: day.span).map(y)
+        return HStack(alignment: .top, spacing: laneGap) {
+            ZStack(alignment: .top) {
+                ForEach(main) { item in
+                    BlockCell(item: item, past: item.span.end <= now, caffeine: false) { onSelectBlock(item.block) }
+                        .frame(height: max(1, y(item.span.end) - y(item.span.start) - 2))
+                        .offset(y: y(item.span.start) + 1)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            ZStack(alignment: .top) {
+                ForEach(caffeine) { item in
+                    BlockCell(item: item, past: item.span.end <= now, caffeine: true) { onSelectBlock(item.block) }
+                        .frame(height: max(1, y(item.span.end) - y(item.span.start) - 2))
+                        .offset(y: y(item.span.start) + 1)
+                }
+            }
+            .frame(width: caffeineWidth)
+            .frame(maxHeight: .infinity, alignment: .top)
+        }
+        .background(alignment: .top) {
+            Canvas { ctx, size in
+                for t in ticks {
+                    ctx.fill(Path(CGRect(x: 0, y: t - 0.25, width: size.width, height: 0.5)), with: .color(Palette.line))
+                }
+            }
+            .accessibilityHidden(true)
+        }
+        .overlay(alignment: .topLeading) { nowLine }
+        .background(alignment: .topLeading) {
+            // Scroll anchors at each hour tick (used to open on "now" and by debug screenshots).
+            ZStack(alignment: .topLeading) {
+                ForEach(Array(ticks.enumerated()), id: \.offset) { i, t in
+                    Color.clear.frame(width: 1, height: 1).padding(.top, t).id("hour-\(i)")
+                }
+            }
+            .accessibilityHidden(true)
+        }
+    }
+
+    @ViewBuilder
+    private var nowLine: some View {
+        if day.span.contains(now) {
+            let ny = y(now)
+            ZStack(alignment: .topLeading) {
+                Rectangle().fill(Palette.now.opacity(0.5)).frame(height: 1.5).offset(y: ny - 0.75)
+                Circle().fill(Palette.now.opacity(0.85)).frame(width: 7, height: 7).offset(x: -3.5, y: ny - 3.5)
+                // Scroll anchor (padding, not offset, so ScrollViewReader sees the position).
+                Color.clear.frame(width: 1, height: 1).padding(.top, ny).id("now")
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
         }
     }
 }
 
-struct BlockLabel: View {
-    let block: PlanBlock
-    let plan: Plan
+/// A solid, rounded block. Content adapts to the space the duration gives it: title and one
+/// short line, title only, icon only, or nothing (tap still opens the details). Height always
+/// matches the duration.
+private struct BlockCell: View {
+    let item: LaneItem
+    let past: Bool
+    let caffeine: Bool
+    var action: () -> Void
+
+    var block: PlanBlock { item.block }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 6) {
-            KindIcon(kind: block.kind).font(.footnote).frame(width: 18)
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 4) {
-                    Text(block.title).font(.footnote.weight(.semibold))
-                    if let r = block.recommendedMinutes {
-                        Text("· \(r.lowerBound)–\(r.upperBound) min in window").font(.caption2).foregroundStyle(.secondary)
-                    }
-                    if block.isOptional && block.recommendedMinutes == nil {
-                        Text("· optional").font(.caption2).foregroundStyle(.secondary)
-                    }
+        GeometryReader { geo in
+            Button(action: action) {
+                ZStack(alignment: caffeine ? .top : (geo.size.height < 46 ? .leading : .topLeading)) {
+                    RoundedRectangle(cornerRadius: min(10, geo.size.height / 2), style: .continuous).fill(block.kind.fill)
+                    if caffeine { caffeineContent } else { mainContent }
                 }
-                Text(timeRange).font(.caption2.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.7)
+                .contentShape(Rectangle())
             }
-            Spacer(minLength: 0)
+            .buttonStyle(.plain)
+            .accessibilityLabel(accessibility)
+            .accessibilityHint("Shows timing and details")
         }
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibility)
-        .accessibilityHint("Shows details and why")
+        .opacity(past ? 0.72 : 1)
     }
 
-    var timeRange: String {
-        if block.kind == .flight, let s = plan.trip.segments.first(where: { $0.id == block.segmentID }) {
-            return "Departs \(TimeFmt.time(s.departure, s.originZoneID)) \(TimeFmt.zoneAbbrev(s.originZoneID, at: s.departure)) · arrives \(TimeFmt.dayTime(s.arrival, s.destinationZoneID)) \(TimeFmt.zoneAbbrev(s.destinationZoneID, at: s.arrival))"
+    private var icon: some View { KindIcon(kind: block.kind, tint: block.kind.ink).font(.caption2.weight(.semibold)) }
+
+    private var titleRow: some View {
+        HStack(spacing: 5) {
+            icon
+            Text(block.displayTitle).font(.footnote.weight(.medium)).foregroundStyle(block.kind.ink)
+                .lineLimit(1).minimumScaleFactor(0.85)
         }
-        let endZone = plan.trip.zoneID(at: block.end)
-        let start = TimeFmt.time(block.start, block.zoneID)
-        let end = TimeFmt.day(block.start, block.zoneID) == TimeFmt.day(block.end, endZone)
-            ? TimeFmt.time(block.end, endZone) : TimeFmt.dayTime(block.end, endZone)
-        return "\(start)–\(end)" + (block.kind.isWindow || block.kind == .prioritizeLight ? " (window \(TimeFmt.duration(block.span.duration)))" : "")
     }
 
-    var accessibility: String {
-        var s = "\(block.kind.legendLabel). \(block.title). \(timeRange)."
-        if let r = block.recommendedMinutes { s += " Suggested \(r.lowerBound) to \(r.upperBound) minutes, any time in the window." }
-        if block.isOptional { s += " Optional." }
+    private var mainContent: some View {
+        ViewThatFits(in: .vertical) {
+            if let sub = block.displaySubtitle {
+                VStack(alignment: .leading, spacing: 2) {
+                    titleRow
+                    Text(sub).font(.caption2).foregroundStyle(block.kind.ink.opacity(0.8)).lineLimit(1).minimumScaleFactor(0.85)
+                }
+                .padding(.vertical, 7)
+            }
+            titleRow.padding(.vertical, 4)
+            icon.padding(.vertical, 2)
+            Color.clear.frame(height: 0)
+        }
+        .padding(.horizontal, 9)
+    }
+
+    private var caffeineContent: some View {
+        ViewThatFits(in: .vertical) {
+            VStack(spacing: 4) {
+                icon
+                Text(block.displayTitle).font(.caption2.weight(.medium)).foregroundStyle(block.kind.ink)
+                    .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.8)
+            }
+            .padding(.vertical, 9)
+            icon.padding(.vertical, 2)
+            Color.clear.frame(height: 0)
+        }
+        .padding(.horizontal, 4)
+    }
+
+    private var accessibility: String {
+        var s = block.displayTitle
+        if let sub = block.displaySubtitle { s += ", \(sub)" }
+        if block.isOptional { s += ", optional" }
         return s
     }
 }
 
-struct Legend: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach([BlockKind.sleep, .nap, .prioritizeLight, .lightHelpful, .reduceLight, .caffeineOK, .caffeineAvoid], id: \.self) { k in
-                Label { Text(k.legendLabel).font(.footnote) } icon: { KindIcon(kind: k) }
-            }
-            Text("Solid bars: do this for the whole period. Outlined or faint bars: a window when it helps. The label says how long, e.g. a 3-hour nap window means a 20–30 min nap, not 3 hours of sleep. Dotted caffeine line: permitted, not a cue to keep drinking.")
-                .font(.caption).foregroundStyle(.secondary)
-        }
-    }
+private struct DottedLine: Shape {
+    func path(in r: CGRect) -> Path { Path { p in p.move(to: CGPoint(x: r.midX, y: r.minY)); p.addLine(to: CGPoint(x: r.midX, y: r.maxY)) } }
 }

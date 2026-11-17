@@ -167,3 +167,37 @@ public enum ItineraryNormalizer {
                                       sources: [raw.source]))
     }
 }
+
+extension ImportedSegment {
+    /// Approximate end of the flight (arrival, else departure). A local wall time without a known zone
+    /// is read as UTC, so it can be off by up to ±14 h; callers allow for that.
+    public var approximateEnd: Date? {
+        switch arrival ?? departure {
+        case .instant(let d): return d
+        case .local(let l, let zone):
+            var c = DateComponents(year: l.year, month: l.month, day: l.day, hour: l.hour, minute: l.minute)
+            c.timeZone = zone.flatMap(TimeZone.init(identifier:)) ?? TimeZone(identifier: "UTC")
+            return Calendar(identifier: .gregorian).date(from: c)
+        case nil: return nil
+        }
+    }
+}
+
+extension NormalizationResult {
+    /// Only what's still relevant: trips that haven't ended (plus `keepTripID`, so a trip in progress
+    /// or the selected plan never disappears), and review items for flights that haven't happened yet.
+    /// Feeds such as TripIt include past trips; those are hidden, not deleted.
+    public func upcoming(from imported: [ImportedSegment], now: Date, keepTripID: String?) -> NormalizationResult {
+        let tripCutoff = now.addingTimeInterval(-24 * 3600)
+        // Extra margin for local times with an unknown zone (up to ±14 h).
+        let rawCutoff = now.addingTimeInterval(-(24 + 14) * 3600)
+        let pastSources = Set(imported.filter { ($0.approximateEnd ?? .distantFuture) < rawCutoff }.map(\.source))
+        let keptTrips = trips.filter { $0.arrival >= tripCutoff || $0.id == keepTripID }
+        let droppedSources = Set(trips.filter { t in !keptTrips.contains { $0.id == t.id } }.flatMap { $0.segments.flatMap(\.sources) })
+        return NormalizationResult(
+            trips: keptTrips,
+            cancelled: cancelled.filter { $0.arrival >= tripCutoff },
+            incomplete: incomplete.filter { !pastSources.contains($0.source) },
+            issues: issues.filter { i in i.source.map { !pastSources.contains($0) && !droppedSources.contains($0) } ?? true })
+    }
+}

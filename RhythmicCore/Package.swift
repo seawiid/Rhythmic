@@ -8,7 +8,7 @@ let package = Package(
         .library(name: "RhythmicCore", targets: ["RhythmicCore"]),
     ],
     targets: [
-        .target(name: "RhythmicCore"),
+        .target(name: "RhythmicCore", resources: [.copy("Resources/airports.tsv"), .copy("Resources/AIRPORTS-LICENSE.txt")]),
         .executableTarget(name: "rhythmic-cli", dependencies: ["RhythmicCore"]),
         .testTarget(name: "RhythmicCoreTests", dependencies: ["RhythmicCore"]),
     ]

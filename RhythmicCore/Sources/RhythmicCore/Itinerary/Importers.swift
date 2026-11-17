@@ -139,3 +139,26 @@ public enum GoogleCalendarEventParser {
             rawSummary: summary.isEmpty ? nil : summary)
     }
 }
+
+/// Cleans up a pasted calendar-feed link (TripIt or any ICS). Tolerates surrounding spaces, line
+/// breaks, quotes or angle brackets, and extra text around the link; converts `webcal://` to `https://`.
+public enum FeedLink {
+    public enum Problem: Error, Equatable {
+        case empty
+        case noLink
+        case notSecure
+    }
+
+    public static func normalize(_ raw: String) -> Result<URL, Problem> {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return .failure(.empty) }
+        // Find the first link anywhere in the pasted text.
+        guard let m = text.firstMatch(of: /(?i)(webcals?|https?):\/\/[^\s"'<>]+/) else { return .failure(.noLink) }
+        var s = String(m.0)
+        let scheme = String(m.1).lowercased()
+        if scheme == "http" { return .failure(.notSecure) }
+        s = "https" + s.drop(while: { $0 != ":" })
+        guard let url = URL(string: s), let host = url.host, host.contains(".") else { return .failure(.noLink) }
+        return .success(url)
+    }
+}
