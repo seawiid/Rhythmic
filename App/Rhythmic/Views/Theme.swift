@@ -27,6 +27,29 @@ enum Palette {
     static let now = Color(0xC2412D, 0xF08A6E)
     /// Neutral icon on the current-action card.
     static let cardIcon = Color(0x475569, 0xCBD5E1)
+    /// The ring in the wordmark and app icon.
+    static let brand = Color(0xCBA65B, 0xD9B872)
+}
+
+// MARK: - Wordmark
+/// "Rhythmic" with a small gold ring at cap height, matching the app icon's "R°".
+struct Wordmark: View {
+    @ScaledMetric(relativeTo: .title2) private var ring: CGFloat = 9.5
+    @ScaledMetric(relativeTo: .title2) private var stroke: CGFloat = 2.8
+    private var capHeight: CGFloat { UIFont.preferredFont(forTextStyle: .title2).capHeight }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: ring * 0.3) {
+            Text("Rhythmic").font(.title2.weight(.semibold)).kerning(-0.5).foregroundStyle(Palette.ink)
+            Circle().strokeBorder(Palette.brand, lineWidth: stroke)
+                .frame(width: ring, height: ring)
+                // Top of the ring sits on the cap line.
+                .alignmentGuide(.firstTextBaseline) { d in d[.top] + capHeight }
+                .accessibilityHidden(true)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Rhythmic")
+    }
 }
 
 extension BlockKind {

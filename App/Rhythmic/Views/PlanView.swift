@@ -30,7 +30,7 @@ struct PlanTab: View {
 struct PlanHeader: View {
     var body: some View {
         HStack {
-            Text("Rhythmic").font(.title2.weight(.semibold)).kerning(-0.5).foregroundStyle(Palette.ink)
+            Wordmark()
                 .accessibilityAddTraits(.isHeader)
             Spacer()
             ReminderBell()
