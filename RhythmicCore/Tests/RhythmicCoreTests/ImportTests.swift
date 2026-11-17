@@ -148,4 +148,71 @@ struct ImportTests {
         #expect(r.trips.count == 1)
         #expect(r.trips[0].segments[0].origin == "ADD")
     }
+
+    @Test("Trip title shows a ground transfer between airports")
+    func groundTransferTitle() {
+        let t = Trip(id: "x", segments: [
+            seg("a", "WDH", "JNB", dep: .init(2026, 11, 17, 7, 0), arr: .init(2026, 11, 17, 9, 0)),
+            seg("b", "SIN", "ADD", dep: .init(2026, 11, 18, 2, 0), arr: .init(2026, 11, 18, 6, 0)),
+        ])
+        #expect(t.title == "WDH → JNB / SIN → ADD")
+        #expect(Fixtures.namibiaSingapore.title == "WDH → ADD → SIN")
+    }
+
+    @Test("Pasted feed links are cleaned up; non-links and plain http are refused")
+    func feedLinks() throws {
+        let good = "https://www.tripit.com/feed/ical/private/ABC-123/tripit.ics"
+        for raw in ["webcal://www.tripit.com/feed/ical/private/ABC-123/tripit.ics",
+                    "  webcal://www.tripit.com/feed/ical/private/ABC-123/tripit.ics\n",
+                    "<https://www.tripit.com/feed/ical/private/ABC-123/tripit.ics>",
+                    "Your feed: \"webcal://www.tripit.com/feed/ical/private/ABC-123/tripit.ics\" (keep private)",
+                    "WEBCAL://www.tripit.com/feed/ical/private/ABC-123/tripit.ics"] {
+            #expect(try FeedLink.normalize(raw).get().absoluteString.lowercased() == good.lowercased(), "\(raw)")
+        }
+        #expect(FeedLink.normalize("   ") == .failure(.empty))
+        #expect(FeedLink.normalize("my tripit feed") == .failure(.noLink))
+        #expect(FeedLink.normalize("http://example.com/a.ics") == .failure(.notSecure))
+    }
+
+    @Test("Past flights from a feed are hidden, including their review items; a kept trip stays")
+    func upcomingOnly() {
+        func raw(_ id: String, _ o: String, _ d: String, _ dep: Date, _ hours: Double) -> ImportedSegment {
+            ImportedSegment(source: SourceRef(kind: .tripItFeed, externalID: id), origin: o, destination: d,
+                            departure: .instant(dep), arrival: .instant(dep.addingTimeInterval(hours * 3600)))
+        }
+        let now = LocalDateTime(2026, 11, 17, 12, 0).date(in: "UTC")
+        let day: TimeInterval = 86400
+        let input = [
+            raw("past", "SIN", "ADD", now.addingTimeInterval(-30 * day), 9),
+            raw("past-unknown", "SIN", "ZZZ", now.addingTimeInterval(-20 * day), 3),   // past + unknown airport
+            raw("soon-unknown", "SIN", "ZZZ", now.addingTimeInterval(20 * day), 3),    // future + unknown airport
+            raw("future", "WDH", "ADD", now.addingTimeInterval(6 * day), 7),
+        ]
+        let all = ItineraryNormalizer.normalize(input)
+        let r = all.upcoming(from: input, now: now, keepTripID: nil)
+        #expect(r.trips.map(\.first.origin) == ["WDH"])
+        #expect(r.issues.count == 1 && r.issues[0].source?.externalID == "soon-unknown")
+        #expect(r.incomplete.map(\.source.externalID) == ["soon-unknown"])
+        // The selected trip is kept even if it ended.
+        let kept = all.upcoming(from: input, now: now, keepTripID: all.trips.first { $0.first.origin == "SIN" }?.id)
+        #expect(kept.trips.count == 2)
+    }
+
+    @Test("Bundled airport table covers airports beyond the hand-checked list; hand-checked entries win")
+    func airportTable() throws {
+        #expect(Airports.extended.count > 7000)
+        #expect(Airports.lookup("KIX")?.zoneID == "Asia/Tokyo")
+        #expect(Airports.lookup("can")?.zoneID == "Asia/Shanghai")
+        #expect(Airports.lookup("SZB")?.zoneID == "Asia/Kuala_Lumpur")
+        #expect(Airports.lookup("XSP")?.zoneID == "Asia/Singapore")   // correction wins
+        #expect(Airports.lookup("WDH")?.city == "Windhoek")
+        #expect(Airports.lookup("QQQ") == nil)
+        // A feed flight to a formerly unknown airport now resolves.
+        let raw = ImportedSegment(source: SourceRef(kind: .tripItFeed, externalID: "k"), origin: "SIN", destination: "KIX",
+                                  departure: .instant(Date(timeIntervalSince1970: 1_798_000_000)),
+                                  arrival: .instant(Date(timeIntervalSince1970: 1_798_021_600)))
+        let r = ItineraryNormalizer.normalize([raw])
+        #expect(r.issues.isEmpty)
+        #expect(r.trips.first?.last.destinationZoneID == "Asia/Tokyo")
+    }
 }

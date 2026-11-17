@@ -99,7 +99,15 @@ public struct Trip: Codable, Hashable, Sendable, Identifiable {
     public var arrival: Date { last.arrival }
     public var originZoneID: String { first.originZoneID }
     public var destinationZoneID: String { last.destinationZoneID }
-    public var title: String { ([first.origin] + segments.map(\.destination)).joined(separator: " → ") }
+    /// "WDH → ADD → SIN". A ground transfer between airports shows both: "WDH → JNB / SIN → ADD".
+    public var title: String {
+        var out = first.origin
+        for (i, s) in segments.enumerated() {
+            if i > 0, s.origin != segments[i - 1].destination { out += " / \(s.origin)" }
+            out += " → \(s.destination)"
+        }
+        return out
+    }
 
     /// Stable fingerprint of plan-relevant facts; a change means the plan must be regenerated.
     public var fingerprint: String {

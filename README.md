@@ -5,15 +5,15 @@ Circadian rhythm and jet-lag planning app for iPhone. It imports your flights an
 > Rhythmic offers research-informed suggestions based on your itinerary and usual sleep habits. It does not measure your body clock, provide medical advice, or guarantee results.
 
 ## Screenshots
-Demo plan for Windhoek → Addis Ababa → Singapore (iPhone Simulator, v0.1).
+Windhoek → Addis Ababa → Singapore, entered as test flights (iPhone Simulator, v0.2). The left-hand clock switches to Addis Ababa at landing and to Singapore at the next landing.
 
-| Plan overview | Travel day | Arrival |
+| Travel day | Transit & arrival | Current time |
 |---|---|---|
-| <img src="docs/screenshots/3-plan-overview.png" width="250"> | <img src="docs/screenshots/4-travel-day.png" width="250"> | <img src="docs/screenshots/5-arrival.png" width="250"> |
+| <img src="docs/screenshots/1-plan-travel-day.png" width="250"> | <img src="docs/screenshots/2-transit-arrival.png" width="250"> | <img src="docs/screenshots/3-now.png" width="250"> |
 
-| Welcome | Preferences | Dark mode |
+| Trips | You (dark) | Dark mode |
 |---|---|---|
-| <img src="docs/screenshots/1-welcome.png" width="250"> | <img src="docs/screenshots/2-preferences.png" width="250"> | <img src="docs/screenshots/6-dark-travel-now.png" width="250"> |
+| <img src="docs/screenshots/4-trips.png" width="250"> | <img src="docs/screenshots/5-you-dark.png" width="250"> | <img src="docs/screenshots/6-dark.png" width="250"> |
 
 ## Docs
 - [docs/PLAN.md](docs/PLAN.md): product decisions and architecture
@@ -34,22 +34,26 @@ open ../App/Rhythmic.xcodeproj            # run on a simulator or iPhone
 ```
 Before installing on a device, change the bundle id (`com.example.rhythmic`) and pick your signing team in Xcode.
 
-Debug builds accept `-RhythmicPreview 2026-11-23T14:00:00Z` as a launch argument to open the demo plan at a given moment.
+Debug builds accept `-RhythmicTab trips|you`, `-RhythmicDay <index>` and `-RhythmicScrollHour <n>` launch arguments so screens can be captured without gestures. They're compiled out of release builds. The app always uses the real current time.
 
-## Status (v0.1, 2026-11-16)
+## Status (v0.2, 2026-11-17)
 **Works**
-- Preferences → deterministic plan → timeline → local notification scheduling, using the sample Windhoek → Addis → Singapore trip and manual flight entry.
+- Plan · Trips · You navigation. Plan shows the route, a day selector, the current action and a time-proportional timeline. The clock follows the most recently reached place and switches at each landing. Flight markers sit at their exact times and open flight details.
+- Preferences → deterministic plan → timeline → local notification scheduling, from manually entered flights (plus the unvalidated feed and Google importers).
+- Header bell and You tab both toggle reminders and reflect the real iOS permission.
+- Light / Dark / System appearance, saved on the device.
 - The "rarely sleep on afternoon flights" preference is applied before planning.
 - Plans regenerate on itinerary or preference changes. Stale reminders are replaced; reminders stop at plan end or when disabled.
 - Offline: the plan is stored locally and reminders are scheduled with iOS.
 
 **Tested**
-- 43 engine tests (Swift Testing). They cover the brief's time conversions, the westward 10:00 arrival, DST fall-back, fractional offsets, the date line, invariants across 9 scenarios, import dedupe/update/cancel/missing fields, and notification merging and staleness.
+- 54 engine tests (Swift Testing), including timeline layout: landing-time clock switch, day paging across midnight, DST, fractional offsets and the date line, label collisions and lane continuity.
+- Engine tests also cover the brief's time conversions, the westward 10:00 arrival, DST fall-back, fractional offsets, the date line, invariants across 9 scenarios, import dedupe/update/cancel/missing fields, and notification merging and staleness.
 - App builds and renders in the iOS Simulator (checked by screenshot).
 
 **Mocked / unvalidated**
-- The sample itinerary is fixture data.
-- ICS (TripIt) and Google event parsers were tested only on synthetic samples.
+- The Windhoek → Singapore and Singapore → Uganda trips are test fixtures used by the engine tests and the CLI. The app has no built-in sample trip.
+- The TripIt feed parser has worked on one real feed (23 flights, 2026-11-17); the Google event parser has been tested only on synthetic samples.
 - Google OAuth hasn't been run (needs a client ID).
 - Notification delivery hasn't been observed on a device.
 
@@ -58,4 +62,4 @@ Debug builds accept `-RhythmicPreview 2026-11-23T14:00:00Z` as a launch argument
 - This is engineering validation only; nothing here is clinical validation.
 
 ## Licence
-GPL-3.0 (see LICENSE).
+GPL-3.0 (see LICENSE). The bundled airport table (`RhythmicCore/Sources/RhythmicCore/Resources/airports.tsv`) is generated from [mwgg/Airports](https://github.com/mwgg/Airports), MIT licence (see `AIRPORTS-LICENSE.txt` beside it).

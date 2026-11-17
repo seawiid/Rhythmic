@@ -34,7 +34,8 @@ RhythmicCore/            Swift package. Pure Foundation, no UI. Tested with `swi
   rhythmic-cli           Dev tool: prints a plan in local + home time
 App/                     Xcode project (iOS). Thin layer over the core.
   Services/              Store (JSON + Keychain), NotificationScheduler, ICS/Google importers
-  Views/                 Plan (Now card, timeline, Why? sheets), setup (preferences, itinerary)
+  Views/                 Plan tab (current action, day timeline, details), Trips tab, You tab (preferences)
+RhythmicCore/Presentation/TimelineLayout   Clock zone (switches at landing), day paging, labels, lanes (tested)
 ```
 The concerns are separate, as the brief asked: **import/normalise → preferences → rules → render → notify**. Each piece is testable in isolation.
 
@@ -54,7 +55,7 @@ The concerns are separate, as the brief asked: **import/normalise → preference
 - The next 60 are scheduled (iOS cap: 64 pending per app) and topped up whenever the app becomes active.
 - Every id is prefixed `rhythmic.<planID>.`. On any plan change, disable, or plan end, all stale ones are removed (`NotificationSync`).
 - Not alarms: Silent mode, Focus and notification settings can suppress them, and the UI says so. No Critical Alerts entitlement.
-- Scheduled reminders fire offline. A trip with more than ~60 reminders needs the app opened at least once mid-trip to schedule the rest (not reached by the demo plan, about 24 reminders).
+- Scheduled reminders fire offline. A trip with more than ~60 reminders needs the app opened at least once mid-trip to schedule the rest (the Windhoek → Singapore test trip has about 24).
 
 ## Status of the first vertical slice
 See README "Status".

@@ -6,7 +6,6 @@ import RhythmicCore
 struct AppState: Codable {
     var acceptedNotice = false
     var preferences: Preferences?
-    var sampleEnabled = false
     var manualSegments: [ImportedSegment] = []
     var feedSegments: [ImportedSegment] = []
     var feedLastFetched: Date?
