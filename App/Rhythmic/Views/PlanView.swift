@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import Combine
 import RhythmicCore
 
 /// Plan tab: header with reminders bell, static route, day selector, current action, timeline.
