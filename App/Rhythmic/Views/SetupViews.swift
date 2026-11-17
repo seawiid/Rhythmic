@@ -170,6 +170,7 @@ struct TripsView: View {
     @State private var showManual = false
     @State private var showFeed = false
     @State private var showGoogle = false
+    @State private var showNoShift = false
 
     var body: some View {
         let result = model.itinerary
@@ -189,24 +190,31 @@ struct TripsView: View {
                         Text("Add a flight, or connect a calendar source below. Rhythmic only shows flights you add or import.")
                     }
                 }
-                ForEach(model.upcomingTrips) { trip in
-                    let selected = model.state.selectedTripID == trip.id
-                    Button {
-                        if !selected || model.plan == nil { model.select(trip: trip) }
-                        openPlan()
-                    } label: { TripCard(trip: trip, status: status(trip, selected: selected)) }
-                        .buttonStyle(.plain)
-                        .listRowBackground(Palette.surface)
-                        .swipeActions {
-                            if hasManual(trip) { Button("Delete", role: .destructive) { model.removeManualFlights(in: trip) } }
-                            if selected { Button("Stop plan") { model.clearPlan() }.tint(.orange) }
-                        }
-                        .contextMenu {
-                            if selected { Button("Stop using this plan", systemImage: "xmark.circle") { model.clearPlan() } }
-                            if hasManual(trip) { Button("Delete added flights", systemImage: "trash", role: .destructive) { model.removeManualFlights(in: trip) } }
-                        }
-                }
+                ForEach(mainTrips) { tripRow($0) }
             } header: { Text("Your trips") }
+
+            if !quietTrips.isEmpty {
+                Section {
+                    Button {
+                        withAnimation { showNoShift.toggle() }
+                    } label: {
+                        HStack {
+                            Text("No shift needed").foregroundStyle(Palette.ink)
+                            Text("\(quietTrips.count)").foregroundStyle(Palette.secondary)
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                                .rotationEffect(.degrees(showNoShift ? 90 : 0))
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .listRowBackground(Palette.surface)
+                    .accessibilityValue(showNoShift ? "Expanded" : "Collapsed")
+                    if showNoShift { ForEach(quietTrips) { tripRow($0) } }
+                } footer: {
+                    Text("Within 3 hours of where the trip departs, so there's no body clock to shift.")
+                }
+            }
 
             if !result.issues.isEmpty {
                 Section {
@@ -245,9 +253,37 @@ struct TripsView: View {
         .sheet(isPresented: $showGoogle) { NavigationStack { GoogleSetupView() } }
     }
 
+    /// Trips that need a body-clock shift, plus the trip whose plan is in use.
+    var mainTrips: [Trip] { model.upcomingTrips.filter { $0.needsShift || model.state.selectedTripID == $0.id } }
+    /// Within ±3 h of the departure zone: tucked into a collapsed section.
+    var quietTrips: [Trip] { model.upcomingTrips.filter { !$0.needsShift && model.state.selectedTripID != $0.id } }
+
+    @ViewBuilder
+    func tripRow(_ trip: Trip) -> some View {
+        let selected = model.state.selectedTripID == trip.id
+        Button {
+            if !selected || model.plan == nil { model.select(trip: trip) }
+            openPlan()
+        } label: { TripCard(trip: trip, status: status(trip, selected: selected), dimmed: !trip.needsShift) }
+            .buttonStyle(.plain)
+            .listRowBackground(Palette.surface)
+            .swipeActions {
+                if hasManual(trip) { Button("Delete", role: .destructive) { model.removeManualFlights(in: trip) } }
+                if selected { Button("Stop plan") { model.clearPlan() }.tint(.orange) }
+            }
+            .contextMenu {
+                if selected { Button("Stop using this plan", systemImage: "xmark.circle") { model.clearPlan() } }
+                if hasManual(trip) { Button("Delete added flights", systemImage: "trash", role: .destructive) { model.removeManualFlights(in: trip) } }
+            }
+    }
+
     func hasManual(_ trip: Trip) -> Bool { trip.segments.contains { $0.sources.contains { $0.kind == .manual } } }
 
     func status(_ trip: Trip, selected: Bool) -> String {
+        if !trip.needsShift, !selected || model.plan == nil {
+            let h = trip.zoneChangeHours
+            return h == 0 ? "Same time zone · no shift needed" : "\(h > 0 ? "+" : "−")\(abs(h).formatted()) h · no shift needed"
+        }
         guard selected, let plan = model.plan, plan.tripID == trip.id else { return "View plan" }
         let now = Date()
         if now < plan.horizon.start {
@@ -271,6 +307,8 @@ struct TripsView: View {
 struct TripCard: View {
     let trip: Trip
     let status: String
+    /// Greyed out: the time change is too small to need a body-clock shift.
+    var dimmed = false
 
     var body: some View {
         HStack(alignment: .center) {
@@ -279,11 +317,12 @@ struct TripCard: View {
                     .font(.system(size: 10, weight: .semibold)).kerning(0.6).foregroundStyle(Palette.secondary)
                 Text(trip.cityTitle).font(.headline.weight(.medium)).foregroundStyle(Palette.ink)
                 if let via = trip.viaText { Text(via).font(.caption).foregroundStyle(Palette.secondary) }
-                Text(status).font(.caption.weight(.medium)).foregroundStyle(Palette.accent).padding(.top, 2)
+                Text(status).font(.caption.weight(.medium)).foregroundStyle(dimmed ? Palette.secondary : Palette.accent).padding(.top, 2)
             }
             Spacer()
             Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
         }
+        .opacity(dimmed ? 0.45 : 1)
         .padding(.vertical, 6)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)

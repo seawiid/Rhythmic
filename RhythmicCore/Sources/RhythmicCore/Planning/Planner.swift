@@ -37,7 +37,7 @@ private struct Builder {
     let prefs: Preferences
     let params: RuleParameters
 
-    let H: String          // home zone
+    let H: String          // departure zone: the body clock is assumed settled where the trip starts
     let D: String          // destination zone
     let L: Double          // habitual sleep length, hours
     let strategy: PlanStrategy
@@ -45,12 +45,12 @@ private struct Builder {
     let target: Double     // signed phase target, hours
     let step: Double       // pre-travel shift per night, hours
     let horizon: TimeSpan
-    let depDayStart: Date  // local midnight (home) of departure day
+    let depDayStart: Date  // local midnight (departure zone) of departure day
     var warnings: [PlanWarning] = []
 
     init(trip: Trip, prefs: Preferences, params: RuleParameters) {
         self.trip = trip; self.prefs = prefs; self.params = params
-        H = prefs.homeZoneID
+        H = trip.originZoneID
         D = trip.destinationZoneID
         L = prefs.sleepHours
 
@@ -78,9 +78,6 @@ private struct Builder {
 
         strategy = PlanStrategy(zoneDifferenceHours: delta, direction: direction, shiftHours: shift, estimatedResidualAtEndHours: 0)
 
-        if abs(Zone.offsetHours(trip.originZoneID, at: trip.departure) - Zone.offsetHours(H, at: trip.departure)) >= 1 {
-            warnings.append(.init(severity: .caution, message: "This trip starts outside your home time zone. The plan assumes your body clock is still on home time."))
-        }
         if shift >= params.largeShiftWarning {
             warnings.append(.init(severity: .caution, message: "This is a very large time change (\(Self.fmtH(shift)) h). The plan's direction is chosen by a rule of thumb, so treat it as less certain."))
         }
@@ -106,7 +103,7 @@ private struct Builder {
 
     func preShiftHours(nights n: Int) -> Double { min(Double(n) * step, abs(target)) }
 
-    /// Estimated body-clock offset (hours) relative to home time. Positive = running earlier.
+    /// Estimated body-clock offset (hours) relative to departure-zone time. Positive = running earlier.
     func phase(at t: Date) -> Double {
         if t < trip.departure { return sign * preShiftHours(nights: preShiftNights(startedBy: t)) }
         let atDeparture = sign * preShiftHours(nights: preShiftNights(startedBy: trip.departure))

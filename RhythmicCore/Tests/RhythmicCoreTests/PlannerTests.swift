@@ -172,6 +172,29 @@ struct PlannerBehaviourTests {
         #expect(!pl.blocks.contains { $0.kind == .prioritizeLight || $0.kind == .lightHelpful })
     }
 
+    @Test("Plan is anchored to the departure zone, not the saved home zone")
+    func anchoredToDeparture() {
+        // Home saved as Windhoek (UTC+2) but the trip is Singapore → Kuala Lumpur (both UTC+8).
+        let trip = Trip(id: "sin-kul", segments: [seg("sin-kul", "SIN", "KUL", dep: .init(2027, 1, 10, 9, 0), arr: .init(2027, 1, 10, 10, 15))])
+        let pl = plan(trip, .demo)
+        #expect(pl.strategy.direction == .none)
+        #expect(!pl.warnings.contains { $0.severity == .caution })
+        // Usual 22:00 bedtime lands at 22:00 Singapore time, not 22:00 Windhoek (04:00 Singapore).
+        let starts = pl.blocks.filter { $0.kind == .sleep && $0.span.start > pl.horizon.start }.map { local($0.span.start, "Asia/Singapore") }
+        #expect(!starts.isEmpty && starts.allSatisfy { $0.hasSuffix("22:00") }, "\(starts)")
+    }
+
+    @Test("Trips within ±3 h of the departure zone don't need a shift")
+    func needsShift() {
+        let kul = Trip(id: "sin-kul", segments: [seg("sin-kul", "SIN", "KUL", dep: .init(2027, 1, 10, 9, 0), arr: .init(2027, 1, 10, 10, 15))])
+        let nrt = Trip(id: "sin-nrt", segments: [seg("sin-nrt", "SIN", "NRT", dep: .init(2027, 1, 10, 9, 0), arr: .init(2027, 1, 10, 17, 0))])
+        let home = Trip(id: "cdg-sin", segments: [seg("cdg-sin", "CDG", "SIN", dep: .init(2027, 1, 10, 11, 0), arr: .init(2027, 1, 11, 7, 0))])
+        #expect(!kul.needsShift)          // 0 h
+        #expect(!nrt.needsShift)          // +1 h
+        #expect(home.needsShift)          // +7 h
+        #expect(home.zoneChangeHours == 7)
+    }
+
     @Test("Short stay is acknowledged as unsupported instead of planned")
     func shortStay() {
         let trip = Fixtures.namibiaSingapore

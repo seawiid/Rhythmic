@@ -23,7 +23,7 @@ public struct Rule: Codable, Hashable, Sendable, Identifiable {
 }
 
 public enum RuleBook {
-    public static let version = "rules-2026.11.0"
+    public static let version = "rules-2026.11.1"
     static let reviewed = "2026-11-16"
 
     static let cdc = "CDC Yellow Book 2026, Jet Lag Disorder — https://www.cdc.gov/yellow-book/hcp/travel-air-sea/jet-lag-disorder.html"
