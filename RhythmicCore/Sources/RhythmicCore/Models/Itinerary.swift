@@ -109,6 +109,20 @@ public struct Trip: Codable, Hashable, Sendable, Identifiable {
         return out
     }
 
+    /// Destination's UTC offset minus the departure airport's, at arrival, wrapped to (−12, 12].
+    public var zoneChangeHours: Double {
+        var d = Zone.offsetHours(destinationZoneID, at: arrival) - Zone.offsetHours(originZoneID, at: arrival)
+        while d > 12 { d -= 24 }
+        while d <= -12 { d += 24 }
+        return d
+    }
+
+    /// Hours of time change within which a trip isn't worth shifting your body clock for.
+    public static let noShiftWindowHours = 3.0
+
+    /// False when the destination is within ±3 h of where the trip departs (e.g. Singapore → Kuala Lumpur).
+    public var needsShift: Bool { abs(zoneChangeHours) > Self.noShiftWindowHours }
+
     /// Stable fingerprint of plan-relevant facts; a change means the plan must be regenerated.
     public var fingerprint: String {
         segments.map { "\($0.origin)\($0.destination)\(Int($0.departure.timeIntervalSince1970))\(Int($0.arrival.timeIntervalSince1970))\($0.originZoneID)\($0.destinationZoneID)" }

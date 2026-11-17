@@ -98,7 +98,8 @@ struct PlanView: View {
                         .id("day-selector")
                     CurrentActionCard(plan: plan, now: clock)
                         .padding(.top, 14)
-                    ForEach(plan.warnings.filter { $0.severity == .caution }, id: \.self) { w in
+                    // Only critical warnings take space here; the rest are in the plan's details.
+                    ForEach(plan.warnings.filter { $0.severity == .critical }, id: \.self) { w in
                         Label(w.message, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(Palette.secondary)
                             .padding(.top, 10)
                     }

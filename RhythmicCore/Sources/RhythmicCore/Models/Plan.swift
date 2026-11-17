@@ -46,7 +46,8 @@ public struct PlanBlock: Codable, Hashable, Sendable, Identifiable {
 }
 
 public struct PlanWarning: Codable, Hashable, Sendable {
-    public enum Severity: String, Codable, Sendable { case info, caution }
+    /// `info` and `caution` live in the plan's details; only `critical` is shown on the plan screen.
+    public enum Severity: String, Codable, Sendable { case info, caution, critical }
     public var severity: Severity
     public var message: String
 }

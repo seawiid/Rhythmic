@@ -194,7 +194,7 @@ struct TripsView: View {
                     Button {
                         if !selected || model.plan == nil { model.select(trip: trip) }
                         openPlan()
-                    } label: { TripCard(trip: trip, status: status(trip, selected: selected)) }
+                    } label: { TripCard(trip: trip, status: status(trip, selected: selected), dimmed: !trip.needsShift) }
                         .buttonStyle(.plain)
                         .listRowBackground(Palette.surface)
                         .swipeActions {
@@ -248,6 +248,10 @@ struct TripsView: View {
     func hasManual(_ trip: Trip) -> Bool { trip.segments.contains { $0.sources.contains { $0.kind == .manual } } }
 
     func status(_ trip: Trip, selected: Bool) -> String {
+        if !trip.needsShift, !selected || model.plan == nil {
+            let h = trip.zoneChangeHours
+            return h == 0 ? "Same time zone · no shift needed" : "\(h > 0 ? "+" : "−")\(abs(h).formatted()) h · no shift needed"
+        }
         guard selected, let plan = model.plan, plan.tripID == trip.id else { return "View plan" }
         let now = Date()
         if now < plan.horizon.start {
@@ -271,6 +275,8 @@ struct TripsView: View {
 struct TripCard: View {
     let trip: Trip
     let status: String
+    /// Greyed out: the time change is too small to need a body-clock shift.
+    var dimmed = false
 
     var body: some View {
         HStack(alignment: .center) {
@@ -279,11 +285,12 @@ struct TripCard: View {
                     .font(.system(size: 10, weight: .semibold)).kerning(0.6).foregroundStyle(Palette.secondary)
                 Text(trip.cityTitle).font(.headline.weight(.medium)).foregroundStyle(Palette.ink)
                 if let via = trip.viaText { Text(via).font(.caption).foregroundStyle(Palette.secondary) }
-                Text(status).font(.caption.weight(.medium)).foregroundStyle(Palette.accent).padding(.top, 2)
+                Text(status).font(.caption.weight(.medium)).foregroundStyle(dimmed ? Palette.secondary : Palette.accent).padding(.top, 2)
             }
             Spacer()
             Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
         }
+        .opacity(dimmed ? 0.45 : 1)
         .padding(.vertical, 6)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
